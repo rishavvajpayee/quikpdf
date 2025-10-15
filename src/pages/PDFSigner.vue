@@ -8,7 +8,7 @@
           <circle cx="16" cy="15" r="7" stroke="white" stroke-width="2.5" fill="none"/>
           <line x1="20" y1="20" x2="23" y2="23" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
         </svg>
-        <span class="logo-text">qwikPDF</span>
+        <span class="logo-text">quikPDF</span>
       </div>
 
       <EditorMenuBar
