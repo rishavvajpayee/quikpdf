@@ -23,240 +23,109 @@
     </div>
 
     <!-- Toolbar with Upload and Signature buttons -->
-    <div class="pdf-toolbar">
-      <input
-        type="file"
-        ref="fileInput"
-        @change="loadPDF"
-        accept=".pdf"
-        style="display: none"
-      />
-      <!-- <button @click="$refs.fileInput.click()" class="toolbar-btn">
-        Load PDF
-      </button> -->
-      <button @click="createSignature" class="toolbar-btn" :disabled="!pdfLoaded">
-        Add Signature
-      </button>
-      <button @click="createText" class="toolbar-btn" :disabled="!pdfLoaded">
-        Add Text
-      </button>
-      <button @click="clearSignatures" class="toolbar-btn" :disabled="signatures.length === 0 && textAnnotations.length === 0">
-        Clear All
-      </button>
-    </div>
+    <PDFToolbar
+      ref="toolbarRef"
+      :pdf-loaded="pdfLoaded"
+      :has-annotations="signatures.length > 0 || textAnnotations.length > 0"
+      @add-signature="createSignature"
+      @add-text="createText"
+      @clear-all="clearSignatures"
+      @file-selected="loadPDF"
+    />
 
     <!-- Placement Hint -->
-    <div v-if="showPlacementHint" class="placement-hint">
-      📍 Click anywhere on the PDF to place your {{ pendingSignature ? 'signature' : 'text' }}
-    </div>
+    <PlacementHint
+      :show="showPlacementHint"
+      :type="pendingSignature ? 'signature' : 'text'"
+    />
 
-    <div v-if="!pdfLoaded" class="pdf-not-loaded">
-      <div class="empty-state">
-
-        <h3>No PDF Document Loaded</h3>
-        <p>Upload a PDF document to start editing.</p>
-        <button @click="$refs.fileInput.click()" class="load-pdf-btn">
-          Load PDF Document
-        </button>
-      </div>
-    </div>
+    <!-- Empty State -->
+    <EmptyState
+      :show="!pdfLoaded"
+      @load-pdf="toolbarRef?.clickFileInput()"
+    />
 
     <!-- PDF Canvas Container -->
-    <div class="pdf-canvas-wrapper">
-      <div class="pdf-scroll-container">
-        <div class="pdf-container" :style="{ transform: `scale(${zoom})` }" @click="handleContainerClick">
-          <!-- Multiple page canvases -->
-          <div
-            v-for="pageNum in totalPages"
-            :key="pageNum"
-            class="pdf-page-wrapper"
-            @click="placeSignature"
-          >
-            <canvas
-              :ref="el => setPageRef(el, pageNum)"
-              class="pdf-canvas"
-            ></canvas>
-          </div>
-
-          <!-- Signature overlays -->
-          <div
-            v-for="(sig, index) in signatures"
-            :key="index"
-            class="signature-overlay"
-            :class="{ 'selected': selectedType === 'signature' && selectedIndex === index }"
-            :style="{
-              left: sig.x + 'px',
-              top: sig.y + 'px',
-              width: sig.width + 'px',
-              height: sig.height + 'px'
-            }"
-            @mousedown="startDrag($event, index, 'signature')"
-            @click="selectElement(index, 'signature', $event)"
-          >
-            <img :src="sig.image" alt="Signature" style="width: 100%; height: 100%;" />
-            <button class="delete-sig" @click="deleteSignature(index)">×</button>
-          </div>
-
-          <!-- Text overlays -->
-          <div
-            v-for="(text, index) in textAnnotations"
-            :key="'text-' + index"
-            class="text-overlay"
-            :class="{ 'selected': selectedType === 'text' && selectedIndex === index }"
-            :style="{
-              left: text.x + 'px',
-              top: text.y + 'px',
-              fontSize: text.fontSize + 'px',
-              color: text.color,
-              fontWeight: text.bold ? 'bold' : 'normal',
-              fontStyle: text.italic ? 'italic' : 'normal'
-            }"
-            @mousedown="startDrag($event, index, 'text')"
-            @click="selectElement(index, 'text', $event)"
-            @dblclick="editText(index)"
-          >
-            <span>{{ text.content }}</span>
-            <button class="delete-sig" @click="deleteText(index)">×</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <PDFCanvas
+      v-if="pdfLoaded"
+      ref="pdfCanvasRef"
+      :zoom="zoom"
+      :total-pages="totalPages"
+      :signatures="signatures"
+      :text-annotations="textAnnotations"
+      :selected-index="selectedIndex"
+      :selected-type="selectedType"
+      @place-element="placeSignature"
+      @drag-start="startDrag"
+      @select-element="selectElement"
+      @delete-signature="deleteSignature"
+      @delete-text="deleteText"
+      @edit-text="editText"
+      @container-click="handleContainerClick"
+    />
 
     <!-- Export PDF Dialog -->
-    <div v-if="showExportDialog" class="modal-overlay" @click="showExportDialog = false">
-      <div class="modal-content" @click.stop>
-        <h3>Save Signed PDF</h3>
-        <div class="dialog-body">
-          <label for="export-filename">File Name:</label>
-          <input
-            id="export-filename"
-            type="text"
-            v-model="exportFilename"
-            class="filename-input"
-            @keyup.enter="confirmExport"
-          />
-        </div>
-        <div class="modal-actions">
-          <button @click="showExportDialog = false" class="btn-secondary">Cancel</button>
-          <button @click="confirmExport" class="btn-primary">Download</button>
-        </div>
-      </div>
-    </div>
+    <ExportDialog
+      :show="showExportDialog"
+      :filename="exportFilename"
+      @close="showExportDialog = false"
+      @confirm="confirmExport"
+    />
 
     <!-- Signature Drawing Modal -->
-    <div v-if="showSignatureModal" class="modal-overlay" @click="closeSignatureModal">
-      <div class="modal-content" @click.stop>
-        <h3>Draw Your Signature</h3>
-        <canvas
-          ref="signatureCanvas"
-          width="800"
-          height="300"
-          class="signature-canvas"
-          @mousedown="startDrawing"
-          @mousemove="draw"
-          @mouseup="stopDrawing"
-          @mouseleave="stopDrawing"
-        ></canvas>
-        <div class="modal-actions">
-          <button @click="clearSignatureCanvas" class="btn-secondary">Clear</button>
-          <button @click="saveSignature" class="btn-primary">Add to PDF</button>
-          <button @click="closeSignatureModal" class="btn-secondary">Cancel</button>
-        </div>
-      </div>
-    </div>
+    <SignatureModal
+      :show="showSignatureModal"
+      @close="closeSignatureModal"
+      @save="saveSignature"
+    />
 
     <!-- Text Input Modal -->
-    <div v-if="showTextModal" class="modal-overlay" @click="closeTextModal">
-      <div class="modal-content text-modal" @click.stop>
-        <h3>{{ editingTextIndex !== null ? 'Edit Text' : 'Add Text' }}</h3>
-        <div class="text-input-container">
-          <label for="text-content">Text Content:</label>
-          <textarea
-            id="text-content"
-            v-model="newTextContent"
-            class="text-input"
-            placeholder="Enter your text here..."
-            rows="4"
-            @keydown.enter.ctrl="saveText"
-          ></textarea>
-        </div>
-        <div class="text-options">
-          <div class="option-group">
-            <label for="font-size">Font Size:</label>
-            <input
-              id="font-size"
-              type="number"
-              v-model.number="textFontSize"
-              min="8"
-              max="72"
-              class="number-input"
-            />
-          </div>
-          <div class="option-group">
-            <label for="text-color">Color:</label>
-            <input
-              id="text-color"
-              type="color"
-              v-model="textColor"
-              class="color-input"
-            />
-          </div>
-          <div class="option-group">
-            <label>
-              <input type="checkbox" v-model="textBold" />
-              Bold
-            </label>
-          </div>
-          <div class="option-group">
-            <label>
-              <input type="checkbox" v-model="textItalic" />
-              Italic
-            </label>
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button @click="closeTextModal" class="btn-secondary">Cancel</button>
-          <button @click="saveText" class="btn-primary" :disabled="!newTextContent.trim()">
-            {{ editingTextIndex !== null ? 'Update' : 'Add to PDF' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <TextModal
+      :show="showTextModal"
+      :is-editing="editingTextIndex !== null"
+      :content="newTextContent"
+      :font-size="textFontSize"
+      :color="textColor"
+      :bold="textBold"
+      :italic="textItalic"
+      @close="closeTextModal"
+      @save="saveText"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import { PDFDocument, rgb } from 'pdf-lib'
 import EditorMenuBar from '../components/EditorMenuBar.vue'
+import PDFToolbar from '../components/pdf/PDFToolbar.vue'
+import PlacementHint from '../components/pdf/PlacementHint.vue'
+import EmptyState from '../components/pdf/EmptyState.vue'
+import PDFCanvas from '../components/pdf/PDFCanvas.vue'
+import ExportDialog from '../components/pdf/ExportDialog.vue'
+import SignatureModal from '../components/pdf/SignatureModal.vue'
+import TextModal from '../components/pdf/TextModal.vue'
 
 // Set worker to local file
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
+// Refs
+const toolbarRef = ref(null)
+const pdfCanvasRef = ref(null)
 const zoom = ref(1)
-const fileInput = ref(null)
 const pdfLoaded = ref(false)
 const totalPages = ref(0)
-const pageCanvases = ref({})
 const showPlacementHint = ref(false)
 const showExportDialog = ref(false)
 const exportFilename = ref('')
+
 // Don't make PDF objects reactive - Vue reactivity breaks PDF.js internals
 let pdfDocument = null
 let originalPdfFile = null // Store original PDF file for export
 
-const setPageRef = (el, pageNum) => {
-  if (el) {
-    pageCanvases.value[pageNum] = el
-  }
-}
-
 const signatures = ref([])
 const showSignatureModal = ref(false)
-const signatureCanvas = ref(null)
-const isDrawing = ref(false)
-const signatureContext = ref(null)
 const pendingSignature = ref(null)
 
 // Text annotation state
@@ -299,16 +168,28 @@ const loadPDF = async (event) => {
       const pdf = await loadingTask.promise
       pdfDocument = pdf
       totalPages.value = pdf.numPages
+      pdfLoaded.value = true
 
-      // Wait for Vue to create the canvas elements
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // Wait for Vue to create the PDFCanvas component and canvas elements
+      await nextTick()
+      
+      // Wait for canvas refs to be properly set with retry logic
+      let retries = 0
+      const maxRetries = 10
+      while (retries < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+        // Try to get the first canvas to verify refs are ready
+        const testCanvas = pdfCanvasRef.value?.getCanvas(1)
+        if (testCanvas) {
+          break
+        }
+        retries++
+      }
 
       // Render all pages at initial zoom
       for (let i = 1; i <= pdf.numPages; i++) {
         await renderPage(i, zoom.value)
       }
-
-      pdfLoaded.value = true
     } catch (error) {
       console.error('Error loading PDF:', error)
       alert('Failed to load PDF. Please try another file.')
@@ -319,29 +200,33 @@ const loadPDF = async (event) => {
 
 const renderPage = async (pageNum, currentZoom = zoom.value) => {
   if (!pdfDocument) return
+  if (!pdfCanvasRef.value) return
 
-  const canvas = pageCanvases.value[pageNum]
+  const canvas = pdfCanvasRef.value.getCanvas(pageNum)
   if (!canvas) return
 
   const page = await pdfDocument.getPage(pageNum)
 
   // Use device pixel ratio for high-DPI displays (Retina, etc.)
   const pixelRatio = window.devicePixelRatio || 1
-  // Adaptive base scale: lower at normal zoom, higher when zoomed in
-  // This gives best quality at all zoom levels without over-rendering
-  const baseScale = 2.0 // Balanced for quality and performance
-  const scale = baseScale * pixelRatio * currentZoom
+  
+  // Use a consistent base scale for quality
+  const baseScale = 1.5
+  const scale = baseScale * currentZoom
 
   const viewport = page.getViewport({ scale })
   const context = canvas.getContext('2d')
 
-  // Set canvas internal resolution (actual pixels)
-  canvas.width = viewport.width
-  canvas.height = viewport.height
+  // Set canvas internal resolution (actual pixels) with device pixel ratio
+  canvas.width = viewport.width * pixelRatio
+  canvas.height = viewport.height * pixelRatio
 
-  // Set canvas display size (CSS pixels) - accounting for zoom
-  canvas.style.width = `${viewport.width / (pixelRatio * currentZoom)}px`
-  canvas.style.height = `${viewport.height / (pixelRatio * currentZoom)}px`
+  // Set canvas display size (CSS pixels)
+  canvas.style.width = `${viewport.width}px`
+  canvas.style.height = `${viewport.height}px`
+
+  // Scale the context to match device pixel ratio
+  context.scale(pixelRatio, pixelRatio)
 
   const renderContext = {
     canvasContext: context,
@@ -368,18 +253,6 @@ watch(zoom, async (newZoom) => {
 
 const createSignature = () => {
   showSignatureModal.value = true
-  setTimeout(() => {
-    if (signatureCanvas.value) {
-      signatureContext.value = signatureCanvas.value.getContext('2d', { willReadFrequently: true })
-      // High quality settings
-      signatureContext.value.strokeStyle = '#000'
-      signatureContext.value.lineWidth = 4 // Thicker line for better quality
-      signatureContext.value.lineCap = 'round'
-      signatureContext.value.lineJoin = 'round'
-      signatureContext.value.imageSmoothingEnabled = true
-      signatureContext.value.imageSmoothingQuality = 'high'
-    }
-  }, 10)
 }
 
 const closeSignatureModal = () => {
@@ -387,52 +260,9 @@ const closeSignatureModal = () => {
   pendingSignature.value = null
 }
 
-const startDrawing = (e) => {
-  isDrawing.value = true
-  const rect = signatureCanvas.value.getBoundingClientRect()
-  const canvas = signatureCanvas.value
-  // Scale coordinates to match actual canvas resolution
-  const scaleX = canvas.width / rect.width
-  const scaleY = canvas.height / rect.height
-  const x = (e.clientX - rect.left) * scaleX
-  const y = (e.clientY - rect.top) * scaleY
-
-  signatureContext.value.beginPath()
-  signatureContext.value.moveTo(x, y)
-}
-
-const draw = (e) => {
-  if (!isDrawing.value) return
-  const rect = signatureCanvas.value.getBoundingClientRect()
-  const canvas = signatureCanvas.value
-  // Scale coordinates to match actual canvas resolution
-  const scaleX = canvas.width / rect.width
-  const scaleY = canvas.height / rect.height
-  const x = (e.clientX - rect.left) * scaleX
-  const y = (e.clientY - rect.top) * scaleY
-
-  signatureContext.value.lineTo(x, y)
-  signatureContext.value.stroke()
-}
-
-const stopDrawing = () => {
-  isDrawing.value = false
-}
-
-const clearSignatureCanvas = () => {
-  if (signatureContext.value && signatureCanvas.value) {
-    signatureContext.value.clearRect(0, 0, signatureCanvas.value.width, signatureCanvas.value.height)
-  }
-}
-
-const saveSignature = () => {
-  if (!signatureCanvas.value) return
-
-  // Save at maximum quality
-  pendingSignature.value = signatureCanvas.value.toDataURL('image/png', 1.0)
+const saveSignature = (dataUrl) => {
+  pendingSignature.value = dataUrl
   showSignatureModal.value = false
-
-  // Show placement hint
   showPlacementHint.value = true
 }
 
@@ -441,17 +271,31 @@ const placeSignature = (e) => {
   if (dragging.value) return // Don't place signature while dragging
 
   const container = document.querySelector('.pdf-container').getBoundingClientRect()
-  const x = (e.clientX - container.left) / zoom.value
-  const y = (e.clientY - container.top) / zoom.value
+  
+  // Handle touch events
+  const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX
+  const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY
+  
+  const x = (clientX - container.left) / zoom.value
+  const y = (clientY - container.top) / zoom.value
+
+  console.log('Placing signature:', {
+    click: { clientX, clientY },
+    container: { left: container.left, top: container.top },
+    zoom: zoom.value,
+    calculated: { x, y }
+  })
 
   if (pendingSignature.value) {
-    signatures.value.push({
+    const sig = {
       image: pendingSignature.value,
       x: x - 100,
       y: y - 37.5,
       width: 200,
       height: 75
-    })
+    }
+    console.log('Signature stored:', sig)
+    signatures.value.push(sig)
     pendingSignature.value = null
   } else if (pendingText.value) {
     textAnnotations.value.push({
@@ -478,10 +322,14 @@ const startDrag = (e, index, type) => {
   // Cache the container rect once at the start of drag
   dragContainerRect = document.querySelector('.pdf-container').getBoundingClientRect()
 
-  // Calculate offset from mouse to item top-left corner
+  // Handle touch events
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY
+
+  // Calculate offset from mouse/touch to item top-left corner
   dragOffset.value = {
-    x: (e.clientX - dragContainerRect.left) / zoom.value - item.x,
-    y: (e.clientY - dragContainerRect.top) / zoom.value - item.y
+    x: (clientX - dragContainerRect.left) / zoom.value - item.x,
+    y: (clientY - dragContainerRect.top) / zoom.value - item.y
   }
 
   // Add grabbing cursor to body during drag
@@ -490,6 +338,8 @@ const startDrag = (e, index, type) => {
 
   document.addEventListener('mousemove', onDrag, { passive: false })
   document.addEventListener('mouseup', stopDrag)
+  document.addEventListener('touchmove', onDrag, { passive: false })
+  document.addEventListener('touchend', stopDrag)
 }
 
 const onDrag = (e) => {
@@ -502,11 +352,15 @@ const onDrag = (e) => {
     cancelAnimationFrame(animationFrameId)
   }
 
+  // Handle touch events
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY
+
   // Use requestAnimationFrame for smooth updates
   animationFrameId = requestAnimationFrame(() => {
     // Use cached container rect for better performance
-    const x = (e.clientX - dragContainerRect.left) / zoom.value - dragOffset.value.x
-    const y = (e.clientY - dragContainerRect.top) / zoom.value - dragOffset.value.y
+    const x = (clientX - dragContainerRect.left) / zoom.value - dragOffset.value.x
+    const y = (clientY - dragContainerRect.top) / zoom.value - dragOffset.value.y
 
     if (dragType.value === 'signature') {
       signatures.value[dragIndex.value].x = x
@@ -537,6 +391,8 @@ const stopDrag = (e) => {
 
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
+  document.removeEventListener('touchmove', onDrag)
+  document.removeEventListener('touchend', stopDrag)
 }
 
 const deleteSignature = (index) => {
@@ -571,27 +427,21 @@ const closeTextModal = () => {
   pendingText.value = null
 }
 
-const saveText = () => {
-  if (!newTextContent.value.trim()) return
+const saveText = (textData) => {
+  if (!textData.content.trim()) return
 
   if (editingTextIndex.value !== null) {
     // Update existing text
     const textItem = textAnnotations.value[editingTextIndex.value]
-    textItem.content = newTextContent.value
-    textItem.fontSize = textFontSize.value
-    textItem.color = textColor.value
-    textItem.bold = textBold.value
-    textItem.italic = textItalic.value
+    textItem.content = textData.content
+    textItem.fontSize = textData.fontSize
+    textItem.color = textData.color
+    textItem.bold = textData.bold
+    textItem.italic = textData.italic
     editingTextIndex.value = null
   } else {
     // Create new text for placement
-    pendingText.value = {
-      content: newTextContent.value,
-      fontSize: textFontSize.value,
-      color: textColor.value,
-      bold: textBold.value,
-      italic: textItalic.value
-    }
+    pendingText.value = textData
     showPlacementHint.value = true
   }
 
@@ -618,8 +468,8 @@ const exportPDFWithSignatures = async () => {
   showExportDialog.value = true
 }
 
-const confirmExport = async () => {
-  if (!exportFilename.value.trim()) {
+const confirmExport = async (filename) => {
+  if (!filename.trim()) {
     alert('Please enter a filename')
     return
   }
@@ -671,10 +521,10 @@ const confirmExport = async () => {
       const pixelRatio = window.devicePixelRatio || 1
 
       for (let i = 0; i < totalPages.value; i++) {
-        const canvas = pageCanvases.value[i + 1]
+        const canvas = pdfCanvasRef.value?.getCanvas(i + 1)
         if (canvas) {
-          // Use display height (CSS pixels), accounting for zoom
-          const displayHeight = canvas.height / (pixelRatio * zoom.value)
+          // Get display height from CSS pixels (unscaled by container transform)
+          const displayHeight = parseFloat(canvas.style.height)
           if (sig.y >= currentY && sig.y < currentY + displayHeight) {
             targetPageIndex = i
             signatureYOnPage = sig.y - currentY
@@ -688,13 +538,19 @@ const confirmExport = async () => {
       const pageHeight = page.getHeight()
       const pageWidth = page.getWidth()
 
-      // Get the canvas dimensions for this page
-      const pageCanvas = pageCanvases.value[targetPageIndex + 1]
-      // Account for zoom when calculating canvas dimensions
-      const canvasWidth = pageCanvas.width / (pixelRatio * zoom.value) // CSS pixels
-      const canvasHeight = pageCanvas.height / (pixelRatio * zoom.value) // CSS pixels
+      // Get the canvas dimensions for this page (CSS pixels, unscaled)
+      const pageCanvas = pdfCanvasRef.value?.getCanvas(targetPageIndex + 1)
+      const canvasWidth = parseFloat(pageCanvas.style.width)
+      const canvasHeight = parseFloat(pageCanvas.style.height)
 
-      // Calculate scale factor
+      console.log('Export signature:', {
+        sigPosition: { x: sig.x, y: sig.y, width: sig.width, height: sig.height },
+        targetPage: targetPageIndex,
+        canvasDims: { width: canvasWidth, height: canvasHeight },
+        pageDims: { width: pageWidth, height: pageHeight }
+      })
+
+      // Calculate scale factor from canvas (CSS pixels) to PDF coordinates
       const scaleX = pageWidth / canvasWidth
       const scaleY = pageHeight / canvasHeight
 
@@ -705,6 +561,8 @@ const confirmExport = async () => {
 
       // Convert Y coordinate (canvas uses top-left origin, PDF uses bottom-left)
       const pdfY = pageHeight - (signatureYOnPage * scaleY) - pdfHeight
+
+      console.log('PDF coordinates:', { pdfX, pdfY, pdfWidth, pdfHeight, scaleX, scaleY })
 
       page.drawImage(pngImage, {
         x: pdfX,
@@ -723,10 +581,10 @@ const confirmExport = async () => {
       const pixelRatio = window.devicePixelRatio || 1
 
       for (let i = 0; i < totalPages.value; i++) {
-        const canvas = pageCanvases.value[i + 1]
+        const canvas = pdfCanvasRef.value?.getCanvas(i + 1)
         if (canvas) {
-          // Use display height (CSS pixels), accounting for zoom
-          const displayHeight = canvas.height / (pixelRatio * zoom.value)
+          // Get display height from CSS pixels
+          const displayHeight = parseFloat(canvas.style.height) || canvas.height / pixelRatio
           if (textItem.y >= currentY && textItem.y < currentY + displayHeight) {
             targetPageIndex = i
             textYOnPage = textItem.y - currentY
@@ -740,10 +598,10 @@ const confirmExport = async () => {
       const pageHeight = page.getHeight()
       const pageWidth = page.getWidth()
 
-      // Get the canvas dimensions for this page
-      const pageCanvas = pageCanvases.value[targetPageIndex + 1]
-      const canvasWidth = pageCanvas.width / (pixelRatio * zoom.value)
-      const canvasHeight = pageCanvas.height / (pixelRatio * zoom.value)
+      // Get the canvas dimensions for this page (CSS pixels)
+      const pageCanvas = pdfCanvasRef.value?.getCanvas(targetPageIndex + 1)
+      const canvasWidth = parseFloat(pageCanvas.style.width) || pageCanvas.width / pixelRatio
+      const canvasHeight = parseFloat(pageCanvas.style.height) || pageCanvas.height / pixelRatio
 
       // Calculate scale factor
       const scaleX = pageWidth / canvasWidth
@@ -801,10 +659,10 @@ const confirmExport = async () => {
     const a = document.createElement('a')
     a.href = url
     // Add .pdf extension if not present
-    const filename = exportFilename.value.endsWith('.pdf')
-      ? exportFilename.value
-      : `${exportFilename.value}.pdf`
-    a.download = filename
+    const finalFilename = filename.endsWith('.pdf')
+      ? filename
+      : `${filename}.pdf`
+    a.download = finalFilename
     a.click()
     URL.revokeObjectURL(url)
   } catch (error) {
@@ -819,7 +677,6 @@ const newDocument = () => {
     originalPdfFile = null
     pdfLoaded.value = false
     totalPages.value = 0
-    pageCanvases.value = {}
     signatures.value = []
     textAnnotations.value = []
   }
@@ -938,13 +795,29 @@ const handleKeyboard = (e) => {
   }
 }
 
+// Handle window resize for mobile rotation
+let resizeTimeout = null
+const handleResize = () => {
+  if (!pdfDocument || !pdfLoaded.value) return
+  
+  clearTimeout(resizeTimeout)
+  resizeTimeout = setTimeout(async () => {
+    // Re-render all pages at new viewport size
+    for (let i = 1; i <= totalPages.value; i++) {
+      await renderPage(i, zoom.value)
+    }
+  }, 300)
+}
+
 // Add keyboard event listener on mount
 onMounted(() => {
   document.addEventListener('keydown', handleKeyboard)
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeyboard)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
@@ -980,425 +853,39 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.placement-hint {
-  position: fixed;
-  top: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #4285f4;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  z-index: 999;
-  font-size: 14px;
-  font-weight: 500;
-  animation: slideDown 0.3s ease-out;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-20px);
+@media (max-width: 768px) {
+  .app-header {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
   }
-  to {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
+
+  .logo {
+    gap: 8px;
+  }
+
+  .logo svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .logo-text {
+    font-size: 18px;
   }
 }
 
-.pdf-toolbar {
-  display: flex;
-  gap: 10px;
-  padding: 10px 20px;
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
-}
+@media (max-width: 480px) {
+  .app-header {
+    padding: 6px 10px;
+  }
 
-.toolbar-btn {
-  padding: 8px 16px;
-  background: #4285f4;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
+  .logo svg {
+    width: 24px;
+    height: 24px;
+  }
 
-.toolbar-btn:hover:not(:disabled) {
-  background: #3367d6;
-}
-
-.toolbar-btn:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-.pdf-canvas-wrapper {
-  flex: 1;
-  overflow: hidden;
-}
-
-.pdf-scroll-container {
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-  background: #e8eaed;
-  padding: 2rem;
-}
-
-.pdf-container {
-  transform-origin: top center;
-  position: relative;
-  margin: 0 auto;
-  width: fit-content;
-}
-
-.pdf-page-wrapper {
-  margin-bottom: 20px;
-}
-
-.pdf-page-wrapper:last-child {
-  margin-bottom: 0;
-}
-
-.pdf-canvas {
-  display: block;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  background: white;
-}
-
-.signature-overlay {
-  position: absolute;
-  cursor: grab;
-  border: 2px dashed #4285f4;
-  background: rgba(66, 133, 244, 0.1);
-  will-change: transform;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-}
-
-.signature-overlay:active {
-  cursor: grabbing;
-}
-
-.signature-overlay:hover {
-  border-color: #3367d6;
-  background: rgba(66, 133, 244, 0.2);
-}
-
-.signature-overlay.selected {
-  border-color: #1a73e8;
-  border-width: 3px;
-  border-style: solid;
-  background: rgba(66, 133, 244, 0.15);
-  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.3);
-}
-
-.text-overlay {
-  position: absolute;
-  cursor: grab;
-  padding: 4px 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: none;
-  border: 2px dashed transparent;
-  transition: border-color 0.2s ease, background 0.2s ease;
-  will-change: transform;
-  transform: translate3d(0, 0, 0);
-  backface-visibility: hidden;
-}
-
-.text-overlay:active {
-  cursor: grabbing;
-}
-
-.text-overlay:hover {
-  border-color: #4285f4;
-  background: rgba(66, 133, 244, 0.1);
-}
-
-.text-overlay.selected {
-  border-color: #1a73e8;
-  border-width: 3px;
-  border-style: solid;
-  background: rgba(66, 133, 244, 0.15);
-  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.3);
-}
-
-.delete-sig {
-  position: absolute;
-  top: -10px;
-  right: -10px;
-  width: 24px;
-  height: 24px;
-  background: #ea4335;
-  color: white;
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-}
-
-.delete-sig:hover {
-  background: #c5221f;
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: white;
-  min-width: 500px;
-  max-width: 90vw;
-  padding: 30px;
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-  overflow: auto;
-}
-
-.modal-content h3 {
-  margin: 0 0 20px 0;
-  font-size: 20px;
-}
-
-.dialog-body {
-  margin-bottom: 20px;
-  min-width: 440px;
-}
-
-.dialog-body label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: #202124;
-}
-
-.filename-input {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  font-family: inherit;
-}
-
-.filename-input:focus {
-  outline: none;
-  border-color: #4285f4;
-  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
-}
-
-.signature-canvas {
-  border: 2px solid #ddd;
-  border-radius: 4px;
-  cursor: crosshair;
-  display: block;
-  margin: 0 auto 20px auto;
-  width: 400px;
-  height: 150px;
-  image-rendering: high-quality;
-  image-rendering: -webkit-optimize-contrast;
-}
-
-.modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-}
-
-.btn-primary,
-.btn-secondary {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.btn-primary {
-  background: #4285f4;
-  color: white;
-}
-
-.btn-primary:hover {
-  background: #3367d6;
-}
-
-.btn-secondary {
-  background: #f1f3f4;
-  color: #202124;
-}
-
-.btn-secondary:hover {
-  background: #e8eaed;
-}
-
-.pdf-not-loaded {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 40px;
-}
-
-.empty-state {
-  text-align: center;
-  max-width: 400px;
-}
-
-.empty-state-icon {
-  color: #5f6368;
-  margin-bottom: 24px;
-  opacity: 0.6;
-}
-
-.empty-state h3 {
-  font-size: 24px;
-  font-weight: 500;
-  color: #202124;
-  margin: 0 0 12px 0;
-}
-
-.empty-state p {
-  font-size: 16px;
-  color: #5f6368;
-  margin: 0 0 32px 0;
-  line-height: 1.5;
-}
-
-.load-pdf-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 28px;
-  background: #4285f4;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 4px rgba(66, 133, 244, 0.3);
-}
-
-.load-pdf-btn:hover {
-  background: #3367d6;
-  box-shadow: 0 4px 8px rgba(66, 133, 244, 0.4);
-  transform: translateY(-1px);
-}
-
-.load-pdf-btn:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(66, 133, 244, 0.3);
-}
-
-.load-pdf-btn svg {
-  width: 20px;
-  height: 20px;
-}
-
-/* Text Modal Styles */
-.text-modal {
-  min-width: 600px;
-}
-
-.text-input-container {
-  margin-bottom: 20px;
-}
-
-.text-input-container label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: #202124;
-}
-
-.text-input {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  font-family: inherit;
-  resize: vertical;
-}
-
-.text-input:focus {
-  outline: none;
-  border-color: #4285f4;
-  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
-}
-
-.text-options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 4px;
-  margin-bottom: 20px;
-}
-
-.option-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.option-group label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #202124;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.number-input {
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  width: 100%;
-}
-
-.number-input:focus {
-  outline: none;
-  border-color: #4285f4;
-  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
-}
-
-.color-input {
-  width: 60px;
-  height: 38px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.color-input:focus {
-  outline: none;
-  border-color: #4285f4;
-  box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
-}
-
-.option-group input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
+  .logo-text {
+    font-size: 16px;
+  }
 }
 </style>
-

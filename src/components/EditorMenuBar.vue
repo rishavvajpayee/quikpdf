@@ -112,4 +112,72 @@ defineEmits(['new-document', 'save', 'undo', 'redo', 'decrease-zoom', 'increase-
 .dropdown-content button:hover {
   background-color: #f1f3f4;
 }
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .menu-bar {
+    padding: 2px 4px;
+    gap: 4px;
+  }
+
+  .menu-button {
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+
+  .zoom-control {
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .zoom-control button {
+    padding: 4px 10px;
+    font-size: 14px;
+  }
+
+  .zoom-control span {
+    font-size: 14px;
+  }
+
+  .dropdown-content button {
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .menu-bar {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .menu-button {
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+
+  .zoom-control {
+    padding: 0 4px;
+    gap: 4px;
+  }
+
+  .zoom-control button {
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+
+  .zoom-control span {
+    font-size: 13px;
+    min-width: 45px;
+  }
+
+  .dropdown-content {
+    min-width: 140px;
+  }
+
+  .dropdown-content button {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}
 </style>
